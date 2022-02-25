@@ -157,7 +157,7 @@ async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValu
                     message,
                     api,
                     &format!(
-                        "Es sind gerade {:} von {:} Spieler:innen online: {:}",
+                        "Der Server läuft gerade und es sind {:} von {:} Spieler:innen online: {:}",
                         &current_players[0],
                         &max_players[0],
                         &re[1][..re[1].len() - 5]
