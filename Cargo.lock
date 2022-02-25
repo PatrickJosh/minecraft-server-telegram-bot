@@ -426,7 +426,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "minecraft-server-telegram-bot-rust"
+name = "minecraft-server-telegram-bot"
 version = "0.1.0"
 dependencies = [
  "frankenstein",
