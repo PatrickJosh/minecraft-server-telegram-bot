@@ -16,6 +16,7 @@ async fn main() {
     let token = config["token"]
         .as_str()
         .expect("Error reading token from json");
+    println!("Configs (incl. token) read successfully");
 
     // Construct api
     let api = AsyncApi::new(token);
@@ -27,6 +28,7 @@ async fn main() {
 
     let mut update_params = update_params_builder.build().unwrap();
 
+    println!("Start update loop.");
     loop {
         let result = api.get_updates(&update_params).await;
 
@@ -35,6 +37,7 @@ async fn main() {
                 for update in response.result {
                     if let Some(message) = update.message {
                         if config[CHAT_SERVER_MAP].has_key(&message.chat.id.to_string()) {
+                            println!("Message received from {:}, handling enabled.", message.chat.id);
                             let api_clone = api.clone();
                             let config_clone = config.clone();
 
@@ -42,6 +45,7 @@ async fn main() {
                                 process_message(message, api_clone, config_clone).await;
                             });
                         } else {
+                            println!("Message received from {:}, no handling enabled.", message.chat.id);
                         }
 
                         update_params = update_params_builder
@@ -81,6 +85,7 @@ async fn start_server_handler(message: Message, api: AsyncApi, config: JsonValue
         .as_str()
         .expect("Error getting server name value");
     send_message_with_reply(message, api, "Ich starte den Server.").await;
+    println!("Start server {:}.", server_name);
     Command::new("sudo")
         .args([
             "systemctl",
@@ -96,6 +101,7 @@ async fn stop_server_handler(message: Message, api: AsyncApi, config: JsonValue)
         .as_str()
         .expect("Error getting server name value");
     send_message_with_reply(message, api, "Ich stoppe den Server.").await;
+    println!("Stop server {:}.", server_name);
     Command::new("sudo")
         .args([
             "systemctl",
@@ -110,6 +116,7 @@ async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValu
     let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
         .as_str()
         .expect("Error getting server name value");
+    println!("Get status for server {:}.", server_name);
     let output = Command::new("sudo")
         .args([
             "systemctl",
@@ -119,6 +126,7 @@ async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValu
         .output()
         .expect("Error executing command");
     if std::str::from_utf8(&output.stdout).expect("Error") == "active\n" {
+        println!("Service for {:} is active.", server_name);
         let output = Command::new("mcrcon")
             .args([
                 "-H",
@@ -138,7 +146,9 @@ async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValu
             .contains("Connection failed")
         {
             send_message_with_reply(message, api, "Der Server startet gerade.").await;
+            println!("Server {:} is starting.", server_name);
         } else {
+            println!("Server {:} is online.", server_name);
             let text = std::str::from_utf8(&output.stdout).expect("Error");
             let re = Regex::new(r"[0-9]+").unwrap();
             let mut text_iter = re.captures_iter(text);
@@ -167,6 +177,7 @@ async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValu
             }
         }
     } else {
+        println!("Service for server {:} is inactive.", server_name);
         send_message_with_reply(message, api, "Der Server läuft gerade nicht.").await;
     }
 }
