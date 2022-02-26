@@ -97,11 +97,11 @@ async fn process_message(message: Message, api: AsyncApi, config: JsonValue) {
 }
 
 async fn start_server_handler(message: Message, api: AsyncApi, config: JsonValue) {
+    let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
+        .as_str()
+        .expect("Error getting server name value");
     match get_service_active(&config, &message) {
         Inactive => {
-            let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
-                .as_str()
-                .expect("Error getting server name value");
             send_message_with_reply(&message, &api, "Ich starte den Server.").await;
             println!("Start server {:}.", server_name);
             let service_name = format!("minecraft-server@{:}.service", server_name);
@@ -158,9 +158,11 @@ async fn start_server_handler(message: Message, api: AsyncApi, config: JsonValue
             );
         }
         Starting => {
+            println!("Server {:} already starting.", server_name);
             send_message_with_reply(&message, &api, "Der Server startet bereits.").await;
         }
         ServerStatus::Running { .. } => {
+            println!("Server {:} already running.", server_name);
             send_message_with_reply(&message, &api, "Der Server läuft bereits.").await;
         }
     }
@@ -170,16 +172,29 @@ async fn stop_server_handler(message: Message, api: AsyncApi, config: JsonValue)
     let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
         .as_str()
         .expect("Error getting server name value");
-    send_message_with_reply(&message, &api, "Ich stoppe den Server.").await;
-    println!("Stop server {:}.", server_name);
-    Command::new("sudo")
-        .args([
-            "systemctl",
-            "stop",
-            format!("minecraft-server@{:}.service", server_name).as_str(),
-        ])
-        .spawn()
-        .expect("Error executing command");
+
+    match get_service_active(&config, &message) {
+        Inactive => {
+            send_message_with_reply(&message, &api, "Der Server läuft derzeit nicht.").await;
+            println!("Server {:} not running, cannot stop.", server_name);
+        }
+        Starting => {
+            send_message_with_reply(&message, &api, "Der Server startet gerade. Bitte warte, bis der Server vollständig hochgefahren ist, bis du ihn stoppst.").await;
+            println!("Server {:} currently starting, cannot stop.", server_name);
+        }
+        ServerStatus::Running { .. } => {
+            send_message_with_reply(&message, &api, "Ich stoppe den Server.").await;
+            println!("Stop server {:}.", server_name);
+            Command::new("sudo")
+                .args([
+                    "systemctl",
+                    "stop",
+                    format!("minecraft-server@{:}.service", server_name).as_str(),
+                ])
+                .spawn()
+                .expect("Error executing command");
+        }
+    }
 }
 
 async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValue) {
