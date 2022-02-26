@@ -1,10 +1,20 @@
+use crate::ServerStatus::{Inactive, Running, Starting};
+use async_process::Command as AsyncCommand;
 use frankenstein::{
     AsyncApi, AsyncTelegramApi, GetUpdatesParamsBuilder, Message, SendMessageParamsBuilder,
 };
+use futures_lite::io::BufReader;
+use futures_lite::{AsyncBufReadExt, StreamExt};
 use json::JsonValue;
 use regex::Regex;
-use std::fs;
-use std::process::Command;
+use std::{fs, str};
+use std::process::{Command, Stdio};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
+use std::time::Duration;
+use std::string::String;
+use tokio::time::sleep;
 
 static CHAT_SERVER_MAP: &str = "chat_server_map";
 
@@ -37,7 +47,10 @@ async fn main() {
                 for update in response.result {
                     if let Some(message) = update.message {
                         if config[CHAT_SERVER_MAP].has_key(&message.chat.id.to_string()) {
-                            println!("Message received from {:}, handling enabled.", message.chat.id);
+                            println!(
+                                "Message received from {:}, handling enabled.",
+                                message.chat.id
+                            );
                             let api_clone = api.clone();
                             let config_clone = config.clone();
 
@@ -45,7 +58,10 @@ async fn main() {
                                 process_message(message, api_clone, config_clone).await;
                             });
                         } else {
-                            println!("Message received from {:}, no handling enabled.", message.chat.id);
+                            println!(
+                                "Message received from {:}, no handling enabled.",
+                                message.chat.id
+                            );
                         }
 
                         update_params = update_params_builder
@@ -81,26 +97,80 @@ async fn process_message(message: Message, api: AsyncApi, config: JsonValue) {
 }
 
 async fn start_server_handler(message: Message, api: AsyncApi, config: JsonValue) {
-    let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
-        .as_str()
-        .expect("Error getting server name value");
-    send_message_with_reply(message, api, "Ich starte den Server.").await;
-    println!("Start server {:}.", server_name);
-    Command::new("sudo")
-        .args([
-            "systemctl",
-            "start",
-            format!("minecraft-server@{:}.service", server_name).as_str(),
-        ])
-        .spawn()
-        .expect("Error executing command");
+    match get_service_active(&config, &message) {
+        Inactive => {
+            let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
+                .as_str()
+                .expect("Error getting server name value");
+            send_message_with_reply(&message, &api, "Ich starte den Server.").await;
+            println!("Start server {:}.", server_name);
+            let service_name = format!("minecraft-server@{:}.service", server_name);
+            Command::new("sudo")
+                .args(["systemctl", "start", &service_name])
+                .spawn()
+                .expect("Error executing command");
+
+            let api_clone = api.clone();
+            let finish = Arc::new(AtomicBool::new(false));
+            let finish_clone = finish.clone();
+            let message_clone = message.clone();
+            let server_name_clone = String::from(server_name);
+
+            let handle = tokio::spawn(async move {
+                println!("Start thread to check online status of {:}.", server_name_clone);
+                let out = AsyncCommand::new("sudo")
+                    .args(["journalctl", "-f", "-u", &service_name])
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                let mut reader = BufReader::new(out.stdout.unwrap()).lines();
+                while let Some(line) = reader.next().await {
+                    if line.unwrap().contains("]: Done") {
+                        send_message_with_reply(
+                            &message_clone,
+                            &api_clone,
+                            "Der Sterver ist nun gestartet.",
+                        )
+                        .await;
+                        finish_clone.store(true, Relaxed);
+                        break;
+                    }
+                }
+                println!(
+                    "Finished thread to check online status of {:}.",
+                    server_name_clone
+                );
+            });
+
+            for _ in 0..60 {
+                sleep(Duration::from_secs(1)).await;
+                if finish.load(Relaxed) {
+                    break;
+                }
+            }
+            if !finish.load(Relaxed) {
+                handle.abort();
+                send_message_with_reply(&message, &api, "Der Server wurde gestartet, allerdings kann nicht ermittelt werden, ob er nun auch läuft.").await;
+            }
+            println!(
+                "Saw that {:} is online now, finishing handling of start_server.",
+                server_name
+            );
+        }
+        Starting => {
+            send_message_with_reply(&message, &api, "Der Server startet bereits.").await;
+        }
+        ServerStatus::Running { .. } => {
+            send_message_with_reply(&message, &api, "Der Server läuft bereits.").await;
+        }
+    }
 }
 
 async fn stop_server_handler(message: Message, api: AsyncApi, config: JsonValue) {
     let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
         .as_str()
         .expect("Error getting server name value");
-    send_message_with_reply(message, api, "Ich stoppe den Server.").await;
+    send_message_with_reply(&message, &api, "Ich stoppe den Server.").await;
     println!("Stop server {:}.", server_name);
     Command::new("sudo")
         .args([
@@ -113,6 +183,51 @@ async fn stop_server_handler(message: Message, api: AsyncApi, config: JsonValue)
 }
 
 async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValue) {
+    match get_service_active(&config, &message) {
+        Inactive => {
+            send_message_with_reply(&message, &api, "Der Server läuft gerade nicht.").await;
+        }
+        Starting => {
+            send_message_with_reply(&message, &api, "Der Server startet gerade.").await;
+        }
+        ServerStatus::Running {
+            current_players,
+            max_players,
+            players,
+        } => {
+            if current_players == "0" {
+                send_message_with_reply(
+                    &message,
+                    &api,
+                    "Der Server läuft gerade, aber niemand ist online.",
+                )
+                .await;
+            } else {
+                send_message_with_reply(
+                    &message,
+                    &api,
+                    &format!(
+                        "Der Server läuft gerade und es sind {:} von {:} Spieler:innen online: {:}",
+                        current_players, max_players, players
+                    ),
+                )
+                .await;
+            }
+        }
+    }
+}
+
+enum ServerStatus {
+    Inactive,
+    Starting,
+    Running {
+        current_players: String,
+        max_players: String,
+        players: String,
+    },
+}
+
+fn get_service_active(config: &JsonValue, message: &Message) -> ServerStatus {
     let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
         .as_str()
         .expect("Error getting server name value");
@@ -145,8 +260,8 @@ async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValu
             .expect("Error")
             .contains("Connection failed")
         {
-            send_message_with_reply(message, api, "Der Server startet gerade.").await;
             println!("Server {:} is starting.", server_name);
+            Starting
         } else {
             println!("Server {:} is online.", server_name);
             let text = std::str::from_utf8(&output.stdout).expect("Error");
@@ -154,35 +269,20 @@ async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValu
             let mut text_iter = re.captures_iter(text);
             let current_players = text_iter.next().unwrap();
             let max_players = text_iter.next().unwrap();
-            if &current_players[0] == "0" {
-                send_message_with_reply(
-                    message,
-                    api,
-                    "Der Server läuft gerade, aber niemand ist online.",
-                )
-                .await;
-            } else {
-                let re: Vec<&str> = text.split(": ").collect();
-                send_message_with_reply(
-                    message,
-                    api,
-                    &format!(
-                        "Der Server läuft gerade und es sind {:} von {:} Spieler:innen online: {:}",
-                        &current_players[0],
-                        &max_players[0],
-                        &re[1][..re[1].len() - 5]
-                    ),
-                )
-                .await;
+            let re: Vec<&str> = text.split(": ").collect();
+            Running {
+                current_players: String::from(&current_players[0]),
+                max_players: String::from(&max_players[0]),
+                players: String::from(&re[1][..re[1].len() - 5]),
             }
         }
     } else {
         println!("Service for server {:} is inactive.", server_name);
-        send_message_with_reply(message, api, "Der Server läuft gerade nicht.").await;
+        Inactive
     }
 }
 
-async fn send_message_with_reply(message: Message, api: AsyncApi, reply: &str) {
+async fn send_message_with_reply(message: &Message, api: &AsyncApi, reply: &str) {
     let send_message_params = SendMessageParamsBuilder::default()
         .chat_id(message.chat.id)
         .text(reply)
