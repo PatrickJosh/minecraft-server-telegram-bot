@@ -81,17 +81,11 @@ async fn main() {
 async fn process_message(message: Message, api: AsyncApi, config: JsonValue) {
     if let Some(text) = &message.text {
         if text.starts_with("/start_server") {
-            tokio::spawn(async move {
-                start_server_handler(message, api, config).await;
-            });
+            start_server_handler(message, api, config).await;
         } else if text.starts_with("/stop_server") {
-            tokio::spawn(async move {
-                stop_server_handler(message, api, config).await;
-            });
+            stop_server_handler(message, api, config).await;
         } else if text.starts_with("/status_server") {
-            tokio::spawn(async move {
-                status_server_handler(message, api, config).await;
-            });
+            status_server_handler(message, api, config).await;
         }
     }
 }
