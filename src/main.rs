@@ -1,19 +1,17 @@
 use crate::ServerStatus::{Inactive, Running, Starting};
 use async_process::Command as AsyncCommand;
-use frankenstein::{
-    Api, TelegramApi, GetUpdatesParamsBuilder, Message, SendMessageParamsBuilder,
-};
+use frankenstein::{Api, GetUpdatesParamsBuilder, Message, SendMessageParamsBuilder, TelegramApi};
 use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
 use json::JsonValue;
 use regex::Regex;
-use std::{fs, str};
 use std::process::{Command, Stdio};
+use std::string::String;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
-use std::string::String;
+use std::{fs, str};
 use tokio::time::sleep;
 
 static CHAT_SERVER_MAP: &str = "chat_server_map";
@@ -111,7 +109,10 @@ async fn start_server_handler(message: Message, api: Api, config: JsonValue) {
             let server_name_clone = String::from(server_name);
 
             let handle = tokio::spawn(async move {
-                println!("Start thread to check online status of {:}.", server_name_clone);
+                println!(
+                    "Start thread to check online status of {:}.",
+                    server_name_clone
+                );
                 let out = AsyncCommand::new("sudo")
                     .args(["journalctl", "-f", "-u", &service_name])
                     .stdout(Stdio::piped())
