@@ -1,7 +1,7 @@
 use crate::ServerStatus::{Inactive, Running, Starting};
 use async_process::Command as AsyncCommand;
 use frankenstein::{
-    AsyncApi, AsyncTelegramApi, GetUpdatesParamsBuilder, Message, SendMessageParamsBuilder,
+    Api, TelegramApi, GetUpdatesParamsBuilder, Message, SendMessageParamsBuilder,
 };
 use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
@@ -29,7 +29,7 @@ async fn main() {
     println!("Configs (incl. token) read successfully");
 
     // Construct api
-    let api = AsyncApi::new(token);
+    let api = Api::new(token);
 
     //let bot_name = api.get_me().await.unwrap().result.username.unwrap();
 
@@ -40,7 +40,7 @@ async fn main() {
 
     println!("Start update loop.");
     loop {
-        let result = api.get_updates(&update_params).await;
+        let result = api.get_updates(&update_params);
 
         match result {
             Ok(response) => {
@@ -78,7 +78,7 @@ async fn main() {
     }
 }
 
-async fn process_message(message: Message, api: AsyncApi, config: JsonValue) {
+async fn process_message(message: Message, api: Api, config: JsonValue) {
     if let Some(text) = &message.text {
         if text.starts_with("/start_server") {
             start_server_handler(message, api, config).await;
@@ -90,7 +90,7 @@ async fn process_message(message: Message, api: AsyncApi, config: JsonValue) {
     }
 }
 
-async fn start_server_handler(message: Message, api: AsyncApi, config: JsonValue) {
+async fn start_server_handler(message: Message, api: Api, config: JsonValue) {
     let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
         .as_str()
         .expect("Error getting server name value");
@@ -162,7 +162,7 @@ async fn start_server_handler(message: Message, api: AsyncApi, config: JsonValue
     }
 }
 
-async fn stop_server_handler(message: Message, api: AsyncApi, config: JsonValue) {
+async fn stop_server_handler(message: Message, api: Api, config: JsonValue) {
     let server_name = config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
         .as_str()
         .expect("Error getting server name value");
@@ -191,7 +191,7 @@ async fn stop_server_handler(message: Message, api: AsyncApi, config: JsonValue)
     }
 }
 
-async fn status_server_handler(message: Message, api: AsyncApi, config: JsonValue) {
+async fn status_server_handler(message: Message, api: Api, config: JsonValue) {
     match get_service_active(&config, &message) {
         Inactive => {
             send_message_with_reply(&message, &api, "Der Server läuft gerade nicht.").await;
@@ -291,7 +291,7 @@ fn get_service_active(config: &JsonValue, message: &Message) -> ServerStatus {
     }
 }
 
-async fn send_message_with_reply(message: &Message, api: &AsyncApi, reply: &str) {
+async fn send_message_with_reply(message: &Message, api: &Api, reply: &str) {
     let send_message_params = SendMessageParamsBuilder::default()
         .chat_id(message.chat.id)
         .text(reply)
@@ -299,7 +299,7 @@ async fn send_message_with_reply(message: &Message, api: &AsyncApi, reply: &str)
         .build()
         .unwrap();
 
-    if let Err(err) = api.send_message(&send_message_params).await {
+    if let Err(err) = api.send_message(&send_message_params) {
         println!("Failed to send message: {:?}", err);
     }
 }
