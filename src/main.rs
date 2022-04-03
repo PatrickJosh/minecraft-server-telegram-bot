@@ -5,6 +5,7 @@ use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
 use json::JsonValue;
 use regex::Regex;
+use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use std::string::String;
 use std::sync::atomic::AtomicBool;
@@ -12,7 +13,11 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{fs, str};
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
+
+type ChatbridgeMap = Arc<RwLock<HashMap<String, JoinHandle<()>>>>;
 
 static CHAT_SERVER_MAP: &str = "chat_server_map";
 
@@ -25,6 +30,7 @@ async fn main() {
         .as_str()
         .expect("Error reading token from json");
     println!("Configs (incl. token) read successfully");
+    let chatbridge_map: ChatbridgeMap = Arc::new(RwLock::new(HashMap::new()));
 
     // Construct api
     let api = Api::new(token);
@@ -51,9 +57,16 @@ async fn main() {
                             );
                             let api_clone = api.clone();
                             let config_clone = config.clone();
+                            let chatbridge_map_clone = chatbridge_map.clone();
 
                             tokio::spawn(async move {
-                                process_message(message, api_clone, config_clone).await;
+                                process_message(
+                                    message,
+                                    api_clone,
+                                    config_clone,
+                                    chatbridge_map_clone,
+                                )
+                                .await;
                             });
                         } else {
                             println!(
@@ -76,7 +89,12 @@ async fn main() {
     }
 }
 
-async fn process_message(message: Message, api: Api, config: JsonValue) {
+async fn process_message(
+    message: Message,
+    api: Api,
+    config: JsonValue,
+    chatbridge_map: ChatbridgeMap,
+) {
     if let Some(text) = &message.text {
         if text.starts_with("/start_server") {
             start_server_handler(message, api, config).await;
@@ -84,6 +102,12 @@ async fn process_message(message: Message, api: Api, config: JsonValue) {
             stop_server_handler(message, api, config).await;
         } else if text.starts_with("/status_server") {
             status_server_handler(message, api, config).await;
+        } else if text.starts_with("/enable_chatbridge") {
+            enable_chatbridge_handler(message, api, config, chatbridge_map).await;
+        } else if text.starts_with("/disable_chatbridge") {
+            disable_chatbridge_handler(message, api, config, chatbridge_map).await;
+        } else {
+            pass_message_to_chatbridge(message, api, config, chatbridge_map).await;
         }
     }
 }
@@ -227,6 +251,135 @@ async fn status_server_handler(message: Message, api: Api, config: JsonValue) {
     }
 }
 
+async fn enable_chatbridge_handler(
+    message: Message,
+    api: Api,
+    config: JsonValue,
+    chatbridge_map: ChatbridgeMap,
+) {
+    if chatbridge_map
+        .read()
+        .await
+        .contains_key(&message.chat.id.to_string())
+    {
+        println!(
+            "Chat bridge for {} already activated.",
+            &message.chat.id.to_string()
+        );
+        send_message_with_reply(&message, &api, "Die Chatbridge ist bereits aktiviert.").await;
+    } else if let Running { .. } = get_service_active(&config, &message) {
+        send_message_with_reply(&message, &api, "Die Chatbridge wird aktiviert.").await;
+        println!(
+            "Chat bridge will be activated for {}.",
+            &message.chat.id.to_string()
+        );
+        let handle = tokio::spawn(async move {
+            println!(
+                "Start chatbridge thread for {}.",
+                &message.chat.id.to_string()
+            );
+            let service_name = format!(
+                "minecraft-server@{:}.service",
+                config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
+                    .as_str()
+                    .expect("Error getting server name value")
+            );
+            let message_regex = Regex::new("INFO]: <([A-Za-z0-9]+)> (.*)").unwrap();
+            let out = AsyncCommand::new("sudo")
+                .args(["journalctl", "-f", "-n", "0", "-u", &service_name])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut reader = BufReader::new(out.stdout.unwrap()).lines();
+            while let Some(line) = reader.next().await {
+                if let Some(captures) = message_regex.captures(&line.unwrap()) {
+                    let send_message_params = SendMessageParamsBuilder::default()
+                        .chat_id(message.chat.id)
+                        .text(format!("<{}> {}", &captures[1], &captures[2]))
+                        .build()
+                        .unwrap();
+
+                    if let Err(err) = api.send_message(&send_message_params) {
+                        println!("Failed to send message: {:?}", err);
+                    }
+                }
+            }
+        });
+        let mut chatbridge_lock = chatbridge_map.write().await;
+        chatbridge_lock.insert(message.chat.id.to_string(), handle);
+    }
+}
+
+async fn disable_chatbridge_handler(
+    message: Message,
+    api: Api,
+    _: JsonValue,
+    chatbridge_map: ChatbridgeMap,
+) {
+    if !chatbridge_map
+        .read()
+        .await
+        .contains_key(&message.chat.id.to_string())
+    {
+        println!(
+            "Chat bridge for {} not active.",
+            &message.chat.id.to_string()
+        );
+        send_message_with_reply(&message, &api, "Die Chatbridge ist bereits deaktiviert.").await;
+    } else {
+        send_message_with_reply(&message, &api, "Die Chatbridge wird deaktiviert.").await;
+        println!(
+            "Chat bridge for {} gets deactivated.",
+            &message.chat.id.to_string()
+        );
+        let mut chatbridge_lock = chatbridge_map.write().await;
+        chatbridge_lock[&message.chat.id.to_string()].abort();
+        chatbridge_lock.remove(&message.chat.id.to_string());
+    }
+}
+
+async fn pass_message_to_chatbridge(
+    message: Message,
+    _: Api,
+    config: JsonValue,
+    chatbridge_map: ChatbridgeMap,
+) {
+    if chatbridge_map
+        .read()
+        .await
+        .contains_key(&message.chat.id.to_string())
+    {
+        println!(
+            "Received message for chatbridge for {}.",
+            &message.chat.id.to_string()
+        );
+        let name = if let Some(username) = &message.from.as_ref().unwrap().username {
+            username
+        } else {
+            &message.from.as_ref().unwrap().first_name
+        };
+        let text = message.text.as_ref().unwrap();
+        Command::new("mcrcon")
+            .args([
+                "-H",
+                "localhost",
+                "-P",
+                "25575",
+                "-p",
+                config["rcon_password"]
+                    .as_str()
+                    .expect("Error reading rcon password from json"),
+                &format!(
+                    "tellraw @a [\"\",{{\"text\":\"{}\",\"bold\":true}},\": {}\"]",
+                    name, text
+                ),
+            ])
+            .output()
+            .expect("Error executing command");
+    }
+}
+
+#[derive(PartialEq)]
 enum ServerStatus {
     Inactive,
     Starting,
