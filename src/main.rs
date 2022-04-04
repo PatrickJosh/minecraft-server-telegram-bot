@@ -335,6 +335,9 @@ impl BotData {
             });
             let mut chatbridge_lock = self.chatbridge_map.write().await;
             chatbridge_lock.insert(message.chat.id.to_string(), handle);
+        } else {
+            self.send_message_with_reply(&message, "Der Server läuft gerade nicht oder startet gerade, daher kann die Chatbridge nicht gestartet werden.")
+                .await;
         }
     }
 
