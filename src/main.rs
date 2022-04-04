@@ -121,7 +121,7 @@ impl BotData {
             } else if text.starts_with("/enable_chatbridge") {
                 self.enable_chatbridge_handler(message).await;
             } else if text.starts_with("/disable_chatbridge") {
-                self.disable_chatbridge_handler(message).await;
+                self.disable_chatbridge_handler(message, true).await;
             } else {
                 self.pass_message_to_chatbridge(message).await;
             }
@@ -207,7 +207,7 @@ impl BotData {
         }
     }
 
-    async fn stop_server_handler(&self, message: Message) {
+    async fn stop_server_handler(&mut self, message: Message) {
         let server_name = self.config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
             .as_str()
             .expect("Error getting server name value");
@@ -226,6 +226,11 @@ impl BotData {
                 self.send_message_with_reply(&message, "Ich stoppe den Server.")
                     .await;
                 println!("Stop server {:}.", server_name);
+                self.disable_chatbridge_handler(message.clone(), false)
+                    .await;
+                let server_name = self.config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
+                    .as_str()
+                    .expect("Error getting server name value");
                 Command::new("sudo")
                     .args([
                         "systemctl",
@@ -333,7 +338,7 @@ impl BotData {
         }
     }
 
-    async fn disable_chatbridge_handler(&mut self, message: Message) {
+    async fn disable_chatbridge_handler(&mut self, message: Message, send_message: bool) {
         if !self
             .chatbridge_map
             .read()
@@ -344,11 +349,15 @@ impl BotData {
                 "Chat bridge for {} not active.",
                 &message.chat.id.to_string()
             );
-            self.send_message_with_reply(&message, "Die Chatbridge ist bereits deaktiviert.")
-                .await;
+            if send_message {
+                self.send_message_with_reply(&message, "Die Chatbridge ist bereits deaktiviert.")
+                    .await;
+            }
         } else {
-            self.send_message_with_reply(&message, "Die Chatbridge wird deaktiviert.")
-                .await;
+            if send_message {
+                self.send_message_with_reply(&message, "Die Chatbridge wird deaktiviert.")
+                    .await;
+            }
             println!(
                 "Chat bridge for {} gets deactivated.",
                 &message.chat.id.to_string()
