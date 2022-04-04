@@ -1,0 +1,8 @@
+{
+  "token": "Token of the Telegram bot",
+  "rcon_password": "RCON password of the Minecraft server",
+  "chat_server_map": {
+    "chat_id0": "service_suffix0",
+    "chat_id1": "service_suffix1"
+  }
+}
