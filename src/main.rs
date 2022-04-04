@@ -1,5 +1,7 @@
 use crate::ServerStatus::{Inactive, Running, Starting};
 use async_process::Command as AsyncCommand;
+use frankenstein::MessageEntityBuilder;
+use frankenstein::MessageEntityType::Bold;
 use frankenstein::{Api, GetUpdatesParamsBuilder, Message, SendMessageParamsBuilder, TelegramApi};
 use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
@@ -323,7 +325,13 @@ impl BotData {
                     if let Some(captures) = message_regex.captures(&line.unwrap()) {
                         let send_message_params = SendMessageParamsBuilder::default()
                             .chat_id(message.chat.id)
-                            .text(format!("<{}> {}", &captures[1], &captures[2]))
+                            .text(format!("{}: {}", &captures[1], &captures[2]))
+                            .entities(vec![MessageEntityBuilder::default()
+                                .type_field(Bold)
+                                .offset(0_u16)
+                                .length(captures[1].len() as u16)
+                                .build()
+                                .unwrap()])
                             .build()
                             .unwrap();
 
