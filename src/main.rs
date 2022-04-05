@@ -10,8 +10,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use std::string::String;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::Relaxed;
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{fs, str};
@@ -145,12 +144,11 @@ impl BotData {
                     .spawn()
                     .expect("Error executing command");
 
-                let finish = Arc::new(AtomicBool::new(false));
-                let finish_clone = finish.clone();
                 let message_clone = message.clone();
                 let server_name_clone = String::from(server_name);
-
                 let bot_data = self.clone();
+
+                let (tx, rx) = mpsc::channel();
 
                 let handle = tokio::spawn(async move {
                     println!(
@@ -171,7 +169,12 @@ impl BotData {
                                     "Der Sterver ist nun gestartet.",
                                 )
                                 .await;
-                            finish_clone.store(true, Relaxed);
+                            match tx.send("finished") {
+                                Ok(_) => {}
+                                Err(_) => {
+                                    println!("Main thread of starting server finished before this. Should not be reached.")
+                                }
+                            }
                             break;
                         }
                     }
@@ -181,19 +184,21 @@ impl BotData {
                     );
                 });
 
+                let mut server_done = false;
                 for _ in 0..60 {
                     sleep(Duration::from_secs(1)).await;
-                    if finish.load(Relaxed) {
+                    if let Ok("finished") = rx.try_recv() {
+                        server_done = true;
                         break;
                     }
                 }
-                if !finish.load(Relaxed) {
+                if !server_done {
                     handle.abort();
                     self.send_message_with_reply(&message, "Der Server wurde gestartet, allerdings kann nicht ermittelt werden, ob er nun auch läuft.").await;
                 }
                 println!(
-                    "Saw that {:} is online now, finishing handling of start_server.",
-                    server_name
+                    "Finishing handling of start_server. Server {} was started properly: {}",
+                    server_name, server_done
                 );
             }
             Starting => {
