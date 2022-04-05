@@ -166,7 +166,7 @@ impl BotData {
                             bot_data
                                 .send_message_with_reply(
                                     &message_clone,
-                                    "Der Sterver ist nun gestartet.",
+                                    "Der Server ist nun gestartet.",
                                 )
                                 .await;
                             match tx.send("finished") {
