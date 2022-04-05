@@ -19,6 +19,7 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 type ChatbridgeMap = Arc<RwLock<HashMap<String, JoinHandle<()>>>>;
+type EnableChatbridgeAfterStartMap = Arc<RwLock<HashMap<String, Message>>>;
 
 #[tokio::main]
 async fn main() {
@@ -28,7 +29,6 @@ async fn main() {
         serde_json::from_str(&config_file).expect("Could not parse config file. Aborting.");
     let token = config.token.as_str();
     println!("Configs (incl. token) read successfully");
-    let chatbridge_map: ChatbridgeMap = Arc::new(RwLock::new(HashMap::new()));
 
     // Construct api
     let api = Api::new(token);
@@ -40,7 +40,12 @@ async fn main() {
 
     let mut update_params = update_params_builder.build().unwrap();
 
-    let bot_data = BotData::new(api, config, chatbridge_map);
+    let bot_data = BotData::new(
+        api,
+        config,
+        Arc::new(RwLock::new(HashMap::new())),
+        Arc::new(RwLock::new(HashMap::new())),
+    );
 
     println!("Start update loop.");
     loop {
@@ -90,6 +95,7 @@ struct BotData {
     api: Api,
     config: Config,
     chatbridge_map: ChatbridgeMap,
+    enable_chatbridge_after_start_map: EnableChatbridgeAfterStartMap,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -111,11 +117,17 @@ enum ServerStatus {
 }
 
 impl BotData {
-    fn new(api: Api, config: Config, chatbridge_map: ChatbridgeMap) -> BotData {
+    fn new(
+        api: Api,
+        config: Config,
+        chatbridge_map: ChatbridgeMap,
+        enable_chatbridge_after_start_map: EnableChatbridgeAfterStartMap,
+    ) -> BotData {
         BotData {
             api,
             config,
             chatbridge_map,
+            enable_chatbridge_after_start_map,
         }
     }
 
@@ -141,7 +153,7 @@ impl BotData {
         let server_name = self.config.chat_server_map[&message.chat.id.to_string()].as_str();
         match self.get_service_active(&message) {
             Inactive => {
-                self.send_message_with_reply(&message, "Ich starte den Server.")
+                self.send_message_with_reply(&message, "Ich starte den Server. Schreibe /enable_chatbridge, wenn die Chatbridge aktiviert werden soll, sobald der Server hochgefahren ist.")
                     .await;
                 println!("Start server {:}.", server_name);
                 let service_name = format!("minecraft-server@{:}.service", server_name);
@@ -152,7 +164,7 @@ impl BotData {
 
                 let message_clone = message.clone();
                 let server_name_clone = String::from(server_name);
-                let bot_data = self.clone();
+                let mut bot_data = self.clone();
 
                 let (tx, rx) = mpsc::channel();
 
@@ -184,6 +196,17 @@ impl BotData {
                             break;
                         }
                     }
+
+                    let message_chatbridge_option = bot_data
+                        .enable_chatbridge_after_start_map
+                        .write()
+                        .await
+                        .remove(&message_clone.chat.id.to_string());
+
+                    if let Some(message_chatbridge) = message_chatbridge_option {
+                        bot_data.enable_chatbridge_handler(message_chatbridge).await;
+                    }
+
                     println!(
                         "Finished thread to check online status of {:}.",
                         server_name_clone
@@ -301,57 +324,80 @@ impl BotData {
             );
             self.send_message_with_reply(&message, "Die Chatbridge ist bereits aktiviert.")
                 .await;
-        } else if let Running { .. } = self.get_service_active(&message) {
-            self.send_message_with_reply(&message, "Die Chatbridge wird aktiviert.")
-                .await;
-            println!(
-                "Chat bridge will be activated for {}.",
-                &message.chat.id.to_string()
-            );
-            let message_clone = message.clone();
-            let bot_data = self.clone();
-            let handle = tokio::spawn(async move {
-                let message = message_clone;
-                println!(
-                    "Start chatbridge thread for {}.",
-                    &message.chat.id.to_string()
-                );
-                let service_name = format!(
-                    "minecraft-server@{:}.service",
-                    bot_data.config.chat_server_map[&message.chat.id.to_string()].as_str()
-                );
-                let message_regex = Regex::new("INFO]: <([A-Za-z0-9]+)> (.*)").unwrap();
-                let out = AsyncCommand::new("sudo")
-                    .args(["journalctl", "-f", "-n", "0", "-u", &service_name])
-                    .stdout(Stdio::piped())
-                    .spawn()
-                    .unwrap();
-                let mut reader = BufReader::new(out.stdout.unwrap()).lines();
-                while let Some(line) = reader.next().await {
-                    if let Some(captures) = message_regex.captures(&line.unwrap()) {
-                        let send_message_params = SendMessageParamsBuilder::default()
-                            .chat_id(message.chat.id)
-                            .text(format!("{}: {}", &captures[1], &captures[2]))
-                            .entities(vec![MessageEntityBuilder::default()
-                                .type_field(Bold)
-                                .offset(0_u16)
-                                .length(captures[1].len() as u16)
-                                .build()
-                                .unwrap()])
-                            .build()
-                            .unwrap();
-
-                        if let Err(err) = bot_data.api.send_message(&send_message_params) {
-                            println!("Failed to send message: {:?}", err);
-                        }
+        } else {
+            match self.get_service_active(&message) {
+                Inactive => {
+                    self.send_message_with_reply(&message, "Der Server läuft gerade nicht, daher kann die Chatbridge nicht gestartet werden.").await;
+                }
+                Starting => {
+                    if !self
+                        .chatbridge_map
+                        .read()
+                        .await
+                        .contains_key(&message.chat.id.to_string())
+                    {
+                        //TODO: This is not 100% thread-safe. Maybe change RwLock to Mutex and/or lock (write) for the whole Starting-scope.
+                        self.send_message_with_reply(&message, "Ok! Die Chatbridge wird aktiviert, sobald der Server hochgefahren ist.").await;
+                        println!(
+                            "Chat bridge will be activated for {} once the server is started.",
+                            &message.chat.id.to_string()
+                        );
+                        self.enable_chatbridge_after_start_map
+                            .write()
+                            .await
+                            .insert(message.chat.id.to_string(), message);
                     }
                 }
-            });
-            let mut chatbridge_lock = self.chatbridge_map.write().await;
-            chatbridge_lock.insert(message.chat.id.to_string(), handle);
-        } else {
-            self.send_message_with_reply(&message, "Der Server läuft gerade nicht oder startet gerade, daher kann die Chatbridge nicht gestartet werden.")
-                .await;
+                ServerStatus::Running { .. } => {
+                    self.send_message_with_reply(&message, "Die Chatbridge wird aktiviert.")
+                        .await;
+                    println!(
+                        "Chat bridge will be activated for {}.",
+                        &message.chat.id.to_string()
+                    );
+                    let message_clone = message.clone();
+                    let bot_data = self.clone();
+                    let handle = tokio::spawn(async move {
+                        let message = message_clone;
+                        println!(
+                            "Start chatbridge thread for {}.",
+                            &message.chat.id.to_string()
+                        );
+                        let service_name = format!(
+                            "minecraft-server@{:}.service",
+                            bot_data.config.chat_server_map[&message.chat.id.to_string()].as_str()
+                        );
+                        let message_regex = Regex::new("INFO]: <([A-Za-z0-9]+)> (.*)").unwrap();
+                        let out = AsyncCommand::new("sudo")
+                            .args(["journalctl", "-f", "-n", "0", "-u", &service_name])
+                            .stdout(Stdio::piped())
+                            .spawn()
+                            .unwrap();
+                        let mut reader = BufReader::new(out.stdout.unwrap()).lines();
+                        while let Some(line) = reader.next().await {
+                            if let Some(captures) = message_regex.captures(&line.unwrap()) {
+                                let send_message_params = SendMessageParamsBuilder::default()
+                                    .chat_id(message.chat.id)
+                                    .text(format!("{}: {}", &captures[1], &captures[2]))
+                                    .entities(vec![MessageEntityBuilder::default()
+                                        .type_field(Bold)
+                                        .offset(0_u16)
+                                        .length(captures[1].len() as u16)
+                                        .build()
+                                        .unwrap()])
+                                    .build()
+                                    .unwrap();
+
+                                if let Err(err) = bot_data.api.send_message(&send_message_params) {
+                                    println!("Failed to send message: {:?}", err);
+                                }
+                            }
+                        }
+                    });
+                    let mut chatbridge_lock = self.chatbridge_map.write().await;
+                    chatbridge_lock.insert(message.chat.id.to_string(), handle);
+                }
+            }
         }
     }
 
@@ -371,17 +417,19 @@ impl BotData {
                     .await;
             }
         } else {
-            if send_message {
-                self.send_message_with_reply(&message, "Die Chatbridge wird deaktiviert.")
-                    .await;
-            }
-            println!(
-                "Chat bridge for {} gets deactivated.",
-                &message.chat.id.to_string()
-            );
             let mut chatbridge_lock = self.chatbridge_map.write().await;
-            chatbridge_lock[&message.chat.id.to_string()].abort();
-            chatbridge_lock.remove(&message.chat.id.to_string());
+            if chatbridge_lock.contains_key(&message.chat.id.to_string()) {
+                if send_message {
+                    self.send_message_with_reply(&message, "Die Chatbridge wird deaktiviert.")
+                        .await;
+                }
+                println!(
+                    "Chat bridge for {} gets deactivated.",
+                    &message.chat.id.to_string()
+                );
+                chatbridge_lock[&message.chat.id.to_string()].abort();
+                chatbridge_lock.remove(&message.chat.id.to_string());
+            }
         }
     }
 
