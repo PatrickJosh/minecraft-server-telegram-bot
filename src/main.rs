@@ -5,8 +5,8 @@ use frankenstein::MessageEntityType::Bold;
 use frankenstein::{Api, GetUpdatesParamsBuilder, Message, SendMessageParamsBuilder, TelegramApi};
 use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
-use json::JsonValue;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use std::string::String;
@@ -20,16 +20,13 @@ use tokio::time::sleep;
 
 type ChatbridgeMap = Arc<RwLock<HashMap<String, JoinHandle<()>>>>;
 
-static CHAT_SERVER_MAP: &str = "chat_server_map";
-
 #[tokio::main]
 async fn main() {
     // Read configuration json
     let config_file = fs::read_to_string("bot-config.json").expect("Error reading config file");
-    let config = json::parse(&config_file).expect("Error parsing json");
-    let token = config["token"]
-        .as_str()
-        .expect("Error reading token from json");
+    let config: Config =
+        serde_json::from_str(&config_file).expect("Could not parse config file. Aborting.");
+    let token = config.token.as_str();
     println!("Configs (incl. token) read successfully");
     let chatbridge_map: ChatbridgeMap = Arc::new(RwLock::new(HashMap::new()));
 
@@ -53,7 +50,11 @@ async fn main() {
             Ok(response) => {
                 for update in response.result {
                     if let Some(message) = update.message {
-                        if bot_data.config[CHAT_SERVER_MAP].has_key(&message.chat.id.to_string()) {
+                        if bot_data
+                            .config
+                            .chat_server_map
+                            .contains_key(&message.chat.id.to_string())
+                        {
                             println!(
                                 "Message received from {:}, handling enabled.",
                                 message.chat.id
@@ -87,8 +88,15 @@ async fn main() {
 #[derive(Debug, Clone)]
 struct BotData {
     api: Api,
-    config: JsonValue,
+    config: Config,
     chatbridge_map: ChatbridgeMap,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct Config {
+    token: String,
+    rcon_password: String,
+    chat_server_map: HashMap<String, String>,
 }
 
 #[derive(PartialEq)]
@@ -103,7 +111,7 @@ enum ServerStatus {
 }
 
 impl BotData {
-    fn new(api: Api, config: JsonValue, chatbridge_map: ChatbridgeMap) -> BotData {
+    fn new(api: Api, config: Config, chatbridge_map: ChatbridgeMap) -> BotData {
         BotData {
             api,
             config,
@@ -130,9 +138,7 @@ impl BotData {
     }
 
     async fn start_server_handler(&self, message: Message) {
-        let server_name = self.config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
-            .as_str()
-            .expect("Error getting server name value");
+        let server_name = self.config.chat_server_map[&message.chat.id.to_string()].as_str();
         match self.get_service_active(&message) {
             Inactive => {
                 self.send_message_with_reply(&message, "Ich starte den Server.")
@@ -215,9 +221,7 @@ impl BotData {
     }
 
     async fn stop_server_handler(&mut self, message: Message) {
-        let server_name = self.config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
-            .as_str()
-            .expect("Error getting server name value");
+        let server_name = self.config.chat_server_map[&message.chat.id.to_string()].as_str();
 
         match self.get_service_active(&message) {
             Inactive => {
@@ -235,9 +239,8 @@ impl BotData {
                 println!("Stop server {:}.", server_name);
                 self.disable_chatbridge_handler(message.clone(), false)
                     .await;
-                let server_name = self.config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
-                    .as_str()
-                    .expect("Error getting server name value");
+                let server_name =
+                    self.config.chat_server_map[&message.chat.id.to_string()].as_str();
                 Command::new("sudo")
                     .args([
                         "systemctl",
@@ -315,9 +318,7 @@ impl BotData {
                 );
                 let service_name = format!(
                     "minecraft-server@{:}.service",
-                    bot_data.config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
-                        .as_str()
-                        .expect("Error getting server name value")
+                    bot_data.config.chat_server_map[&message.chat.id.to_string()].as_str()
                 );
                 let message_regex = Regex::new("INFO]: <([A-Za-z0-9]+)> (.*)").unwrap();
                 let out = AsyncCommand::new("sudo")
@@ -408,9 +409,7 @@ impl BotData {
                     "-P",
                     "25575",
                     "-p",
-                    self.config["rcon_password"]
-                        .as_str()
-                        .expect("Error reading rcon password from json"),
+                    self.config.rcon_password.as_str(),
                     &format!(
                         "tellraw @a [\"\",{{\"text\":\"{}\",\"bold\":true}},\": {}\"]",
                         name, text
@@ -422,9 +421,7 @@ impl BotData {
     }
 
     fn get_service_active(&self, message: &Message) -> ServerStatus {
-        let server_name = self.config[CHAT_SERVER_MAP][&message.chat.id.to_string()]
-            .as_str()
-            .expect("Error getting server name value");
+        let server_name = self.config.chat_server_map[&message.chat.id.to_string()].as_str();
         println!("Get status for server {:}.", server_name);
         let output = Command::new("sudo")
             .args([
@@ -443,9 +440,7 @@ impl BotData {
                     "-P",
                     "25575",
                     "-p",
-                    self.config["rcon_password"]
-                        .as_str()
-                        .expect("Error reading rcon password from json"),
+                    self.config.rcon_password.as_str(),
                     "list",
                 ])
                 .output()
