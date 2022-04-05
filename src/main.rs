@@ -181,6 +181,7 @@ impl BotData {
                     let mut reader = BufReader::new(out.stdout.unwrap()).lines();
                     while let Some(line) = reader.next().await {
                         if line.unwrap().contains("]: Done") {
+                            println!("Server {} started.", server_name_clone);
                             bot_data
                                 .send_message_with_reply(
                                     &message_clone,
@@ -204,7 +205,10 @@ impl BotData {
                         .remove(&message_clone.chat.id.to_string());
 
                     if let Some(message_chatbridge) = message_chatbridge_option {
-                        bot_data.enable_chatbridge_handler(message_chatbridge).await;
+                        println!("Start thread to enable chatbridge handler from start_server.");
+                        tokio::spawn(async move {
+                            bot_data.enable_chatbridge_handler(message_chatbridge).await;
+                        });
                     }
 
                     println!(
@@ -331,7 +335,7 @@ impl BotData {
                 }
                 Starting => {
                     if !self
-                        .chatbridge_map
+                        .enable_chatbridge_after_start_map
                         .read()
                         .await
                         .contains_key(&message.chat.id.to_string())
@@ -346,6 +350,16 @@ impl BotData {
                             .write()
                             .await
                             .insert(message.chat.id.to_string(), message);
+                    } else {
+                        self.send_message_with_reply(
+                            &message,
+                            "Die Aktivierung der Chatbridge ist bereits vorbereitet.",
+                        )
+                        .await;
+                        println!(
+                            "Chat bridge activation already prepared for {}.",
+                            &message.chat.id.to_string()
+                        );
                     }
                 }
                 ServerStatus::Running { .. } => {
