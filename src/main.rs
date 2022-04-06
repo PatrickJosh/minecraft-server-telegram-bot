@@ -283,7 +283,9 @@ impl BotData {
                 }
                 if !server_done {
                     handle.abort();
-                    self.send_message_with_reply(&message, "Der Server wurde gestartet, allerdings kann nicht ermittelt werden, ob er nun auch läuft.").await;
+                    self.send_message_with_reply(&message, "Der Server wurde gestartet, allerdings kann nicht ermittelt werden, ob er nun auch läuft. \
+                    Dies deutet normalerweise darauf hin, dass der Server nicht erfolgreich gestartet ist. \
+                    Bitte kontaktiere deinen Serveradministrator und frage nach, was schiefgelaufen ist.").await;
                 }
                 println!(
                     "Finishing handling of start_server. Server {} was started properly: {}",
@@ -426,7 +428,7 @@ impl BotData {
                         .contains_key(&message.chat.id.to_string())
                     {
                         //TODO: This is not 100% thread-safe. Maybe change RwLock to Mutex and/or lock (write) for the whole Starting-scope.
-                        self.send_message_with_reply(&message, "Ok! Die Chatbridge wird aktiviert, sobald der Server hochgefahren ist.").await;
+                        self.send_message_with_reply(&message, "Ok! Ich aktiviere die Chatbridge, sobald der Server fertig hochgefahren ist.").await;
                         println!(
                             "Chat bridge will be activated for {} once the server is started.",
                             &message.chat.id.to_string()
@@ -448,7 +450,7 @@ impl BotData {
                     }
                 }
                 ServerStatus::Running { .. } => {
-                    self.send_message_with_reply(&message, "Die Chatbridge wird aktiviert.")
+                    self.send_message_with_reply(&message, "Ich aktiviere die Chatbridge.")
                         .await;
                     println!(
                         "Chat bridge will be activated for {}.",
@@ -519,7 +521,7 @@ impl BotData {
             let mut chatbridge_lock = self.chatbridge_map.write().await;
             if chatbridge_lock.contains_key(&message.chat.id.to_string()) {
                 if send_message {
-                    self.send_message_with_reply(&message, "Die Chatbridge wird deaktiviert.")
+                    self.send_message_with_reply(&message, "Ich deaktiviere die Chatbridge.")
                         .await;
                 }
                 println!(
