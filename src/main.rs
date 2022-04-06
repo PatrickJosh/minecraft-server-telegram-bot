@@ -1,8 +1,11 @@
 use crate::ServerStatus::{Inactive, Running, Starting};
 use async_process::Command as AsyncCommand;
-use frankenstein::MessageEntityBuilder;
 use frankenstein::MessageEntityType::Bold;
-use frankenstein::{Api, GetUpdatesParamsBuilder, Message, SendMessageParamsBuilder, TelegramApi};
+use frankenstein::{
+    AnswerCallbackQueryParamsBuilder, Api, CallbackQuery, EditMessageReplyMarkupParamsBuilder,
+    GetUpdatesParamsBuilder, InlineKeyboardButtonBuilder, InlineKeyboardMarkupBuilder, Message,
+    MessageEntityBuilder, ReplyMarkup, SendMessageParamsBuilder, TelegramApi,
+};
 use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
 use regex::Regex;
@@ -36,7 +39,8 @@ async fn main() {
     //let bot_name = api.get_me().await.unwrap().result.username.unwrap();
 
     let mut update_params_builder = GetUpdatesParamsBuilder::default();
-    update_params_builder.allowed_updates(vec!["message".to_string()]);
+    update_params_builder
+        .allowed_updates(vec!["message".to_string(), "callback_query".to_string()]);
 
     let mut update_params = update_params_builder.build().unwrap();
 
@@ -75,12 +79,36 @@ async fn main() {
                                 message.chat.id
                             );
                         }
+                    } else if let Some(callback_query) = update.callback_query {
+                        if callback_query.message.as_ref().is_some() {
+                            if bot_data.config.chat_server_map.contains_key(
+                                &callback_query.message.as_ref().unwrap().chat.id.to_string(),
+                            ) {
+                                println!(
+                                    "Callback query received from {:}, handling enabled.",
+                                    callback_query.message.as_ref().unwrap().chat.id
+                                );
+                                let mut bot_data_clone = bot_data.clone();
 
-                        update_params = update_params_builder
-                            .offset(update.update_id + 1)
-                            .build()
-                            .unwrap();
+                                tokio::spawn(async move {
+                                    bot_data_clone.process_callback_query(callback_query).await;
+                                });
+                            } else {
+                                println!(
+                                    "Callback query received from {:}, no handling enabled.",
+                                    callback_query.message.as_ref().unwrap().chat.id
+                                );
+                            }
+                        } else {
+                            println!(
+                                "Callback query received from unknown sender, no handling enabled.",
+                            );
+                        }
                     }
+                    update_params = update_params_builder
+                        .offset(update.update_id + 1)
+                        .build()
+                        .unwrap();
                 }
             }
             Err(error) => {
@@ -149,12 +177,40 @@ impl BotData {
         }
     }
 
+    async fn process_callback_query(&mut self, callback_query: CallbackQuery) {
+        if let Some(callback_data) = &callback_query.data {
+            if callback_data == "inline_enable_chatbridge" {
+                self.enable_chatbridge_inline_handler(callback_query).await;
+            }
+        }
+    }
+
     async fn start_server_handler(&self, message: Message) {
         let server_name = self.config.chat_server_map[&message.chat.id.to_string()].as_str();
         match self.get_service_active(&message) {
             Inactive => {
-                self.send_message_with_reply(&message, "Ich starte den Server. Schreibe /enable_chatbridge, wenn die Chatbridge aktiviert werden soll, sobald der Server hochgefahren ist.")
-                    .await;
+                {
+                    let inline_keyboard = InlineKeyboardMarkupBuilder::default()
+                        .inline_keyboard(vec![vec![InlineKeyboardButtonBuilder::default()
+                            .text("Aktiviere Chatbridge")
+                            .callback_data("inline_enable_chatbridge")
+                            .build()
+                            .unwrap()]])
+                        .build()
+                        .unwrap();
+                    let send_message_params = SendMessageParamsBuilder::default()
+                        .chat_id(message.chat.id)
+                        .text("Ich starte den Server. Wenn du die Chatbridge aktivieren möchtest, dann betätige den Knopf unter der Nachricht.")
+                        .reply_to_message_id(message.message_id)
+                        .reply_markup(ReplyMarkup::InlineKeyboardMarkup(inline_keyboard))
+                        .build()
+                        .unwrap();
+
+                    if let Err(err) = self.api.send_message(&send_message_params) {
+                        println!("Failed to send message: {:?}", err);
+                    }
+                }
+
                 println!("Start server {:}.", server_name);
                 let service_name = format!("minecraft-server@{:}.service", server_name);
                 Command::new("sudo")
@@ -311,6 +367,35 @@ impl BotData {
                     )
                         .await;
                 }
+            }
+        }
+    }
+
+    async fn enable_chatbridge_inline_handler(&mut self, callback_query: CallbackQuery) {
+        if let Some(message) = callback_query.message {
+            {
+                let inline_keyboard = InlineKeyboardMarkupBuilder::default()
+                    .inline_keyboard(vec![vec![]])
+                    .build()
+                    .unwrap();
+                let edit_message_params = EditMessageReplyMarkupParamsBuilder::default()
+                    .chat_id(message.chat.id)
+                    .message_id(message.message_id)
+                    .reply_markup(inline_keyboard)
+                    .build()
+                    .unwrap();
+                if let Err(err) = self.api.edit_message_reply_markup(&edit_message_params) {
+                    println!("Failed to send answer_callback_reply: {:?}", err);
+                }
+            }
+            self.enable_chatbridge_handler(message).await;
+
+            let answer_callback_query = AnswerCallbackQueryParamsBuilder::default()
+                .callback_query_id(&callback_query.id)
+                .build()
+                .unwrap();
+            if let Err(err) = self.api.answer_callback_query(&answer_callback_query) {
+                println!("Failed to send answer_callback_reply: {:?}", err);
             }
         }
     }
