@@ -187,6 +187,8 @@ impl BotData {
                 self.enable_chatbridge_handler(message).await;
             } else if text.starts_with("/disable_chatbridge") {
                 self.disable_chatbridge_handler(message, true).await;
+            } else if text.starts_with("/licence") {
+                self.licence_handler(message).await;
             } else {
                 self.pass_message_to_chatbridge(message).await;
             }
@@ -548,6 +550,12 @@ impl BotData {
                 chatbridge_lock.remove(&message.chat.id.to_string());
             }
         }
+    }
+
+    async fn licence_handler(&self, message: Message) {
+        self.send_message_with_reply(&message, "Dieser Bot ist freie Software! \
+        Der Quelltext ist lizenziert unter GPLv3 oder einer späteren Version. \
+        Der Quelltext ist abrufbar unter https://github.com/PatrickJosh/minecraft-server-telegram-bot.").await;
     }
 
     async fn pass_message_to_chatbridge(&mut self, message: Message) {
