@@ -1,0 +1,21 @@
+[Unit]
+Description=Telegram Bot for starting Minecraft Server
+Documentation=
+
+After=network-online.target
+
+[Service]
+User=minecraft
+Group=minecraft
+Nice=5
+
+ProtectHome=true
+ProtectSystem=full
+PrivateTmp=true
+InaccessibleDirectories=/root /sys /srv -/opt /media -/lost+found
+ReadWriteDirectories=/var/minecraft/telegram-bot/%i
+WorkingDirectory=/var/minecraft/telegram-bot/%i
+ExecStart=/var/minecraft/telegram-bot/minecraft-server-telegram-bot
+
+[Install]
+WantedBy=multi-user.target
