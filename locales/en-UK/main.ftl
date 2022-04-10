@@ -1,9 +1,7 @@
 activate-chatbridge-inline = Activate chat bridge
 start-server = I start the server. If you want to activate the chat bridge, press the button beneath the message.
 server-started-now = The server is running now.
-server-started-unknown = The server was started, however it cannot be determined if it is running now.
-    This is usually an indication that the server encountered an error during its start.
-    Please contact your admin to ask what went wrong.
+server-started-unknown = The server was started, however it cannot be determined if it is running now. This is usually an indication that the server encountered an error during its start. Please contact your admin to ask what went wrong.
 server-starting-already = The server is already starting.
 server-running-already = The server is running already.
 server-not-running = The server is not running currently.
@@ -22,6 +20,4 @@ chatbridge-activation-already-prepared = The activation of the chat bridge is al
 activate-chatbridge = I activate the chat bridge.
 chatbridge-deactivated = The chat bridge is already activated.
 deactivate-chatbridge = I deactivate the chat bridge.
-licence = This bot is free and libre software!
-    The source code is licenced under the terms of the GPLv3 or any later version.
-    The source code is available at https://github.com/PatrickJosh/minecraft-server-telegram-bot.
+licence = This bot is free and libre software! The source code is licenced under the terms of the GPLv3 or any later version. The source code is available at https://github.com/PatrickJosh/minecraft-server-telegram-bot.
