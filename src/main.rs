@@ -16,6 +16,9 @@
 
 use crate::ServerStatus::{Inactive, Running, Starting};
 use async_process::Command as AsyncCommand;
+use fluent_templates::fluent_bundle::types::FluentNumber;
+use fluent_templates::fluent_bundle::FluentValue;
+use fluent_templates::{static_loader, LanguageIdentifier, Loader};
 use frankenstein::MessageEntityType::Bold;
 use frankenstein::{
     AnswerCallbackQueryParamsBuilder, Api, CallbackQuery, EditMessageReplyMarkupParamsBuilder,
@@ -26,8 +29,10 @@ use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 use std::string::String;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -39,6 +44,15 @@ use tokio::time::sleep;
 
 type ChatbridgeMap = Arc<RwLock<HashMap<String, JoinHandle<()>>>>;
 type EnableChatbridgeAfterStartMap = Arc<RwLock<HashMap<String, Message>>>;
+
+static_loader! {
+    static LOCALES = {
+        // The directory of localisations and fluent resources.
+        locales: "./locales",
+        // The language to falback on if something is not present.
+        fallback_language: "en-UK"
+    };
+}
 
 #[tokio::main]
 async fn main() {
@@ -60,12 +74,14 @@ async fn main() {
 
     let mut update_params = update_params_builder.build().unwrap();
 
-    let bot_data = BotData::new(
+    let bot_data = BotData {
+        locale: LanguageIdentifier::from_str(&config.locale)
+            .expect("Could not parse language identifier."),
         api,
         config,
-        Arc::new(RwLock::new(HashMap::new())),
-        Arc::new(RwLock::new(HashMap::new())),
-    );
+        chatbridge_map: Arc::new(RwLock::new(HashMap::new())),
+        enable_chatbridge_after_start_map: Arc::new(RwLock::new(HashMap::new())),
+    };
 
     println!("Start update loop.");
     loop {
@@ -138,6 +154,7 @@ async fn main() {
 struct BotData {
     api: Api,
     config: Config,
+    locale: LanguageIdentifier,
     chatbridge_map: ChatbridgeMap,
     enable_chatbridge_after_start_map: EnableChatbridgeAfterStartMap,
 }
@@ -146,6 +163,7 @@ struct BotData {
 struct Config {
     token: String,
     rcon_password: String,
+    locale: String,
     chat_server_map: HashMap<String, String>,
 }
 
@@ -161,20 +179,6 @@ enum ServerStatus {
 }
 
 impl BotData {
-    fn new(
-        api: Api,
-        config: Config,
-        chatbridge_map: ChatbridgeMap,
-        enable_chatbridge_after_start_map: EnableChatbridgeAfterStartMap,
-    ) -> BotData {
-        BotData {
-            api,
-            config,
-            chatbridge_map,
-            enable_chatbridge_after_start_map,
-        }
-    }
-
     async fn process_message(&mut self, message: Message) {
         if let Some(text) = &message.text {
             if text.starts_with("/start_server") {
@@ -210,7 +214,7 @@ impl BotData {
                 {
                     let inline_keyboard = InlineKeyboardMarkupBuilder::default()
                         .inline_keyboard(vec![vec![InlineKeyboardButtonBuilder::default()
-                            .text("Aktiviere Chatbridge")
+                            .text(LOCALES.lookup(&self.locale, "activate-chatbridge-inline"))
                             .callback_data("inline_enable_chatbridge")
                             .build()
                             .unwrap()]])
@@ -218,7 +222,7 @@ impl BotData {
                         .unwrap();
                     let send_message_params = SendMessageParamsBuilder::default()
                         .chat_id(message.chat.id)
-                        .text("Ich starte den Server. Wenn du die Chatbridge aktivieren möchtest, dann betätige den Knopf unter der Nachricht.")
+                        .text(LOCALES.lookup(&self.locale, "start-server"))
                         .reply_to_message_id(message.message_id)
                         .reply_markup(ReplyMarkup::InlineKeyboardMarkup(inline_keyboard))
                         .build()
@@ -238,10 +242,10 @@ impl BotData {
 
                 let message_clone = message.clone();
                 let server_name_clone = String::from(server_name);
-                let mut bot_data = self.clone();
 
                 let (tx, rx) = mpsc::channel();
 
+                let mut bot_data = self.clone();
                 let handle = tokio::spawn(async move {
                     println!(
                         "Start thread to check online status of {:}.",
@@ -259,7 +263,7 @@ impl BotData {
                             bot_data
                                 .send_message_with_reply(
                                     &message_clone,
-                                    "Der Server ist nun gestartet.",
+                                    &LOCALES.lookup(&bot_data.locale, "server-started-now"),
                                 )
                                 .await;
                             match tx.send("finished") {
@@ -301,9 +305,11 @@ impl BotData {
                 }
                 if !server_done {
                     handle.abort();
-                    self.send_message_with_reply(&message, "Der Server wurde gestartet, allerdings kann nicht ermittelt werden, ob er nun auch läuft. \
-                    Dies deutet normalerweise darauf hin, dass der Server nicht erfolgreich gestartet ist. \
-                    Bitte kontaktiere deinen Serveradministrator und frage nach, was schiefgelaufen ist.").await;
+                    self.send_message_with_reply(
+                        &message,
+                        &LOCALES.lookup(&self.locale, "server-started-unknown"),
+                    )
+                    .await;
                 }
                 println!(
                     "Finishing handling of start_server. Server {} was started properly: {}",
@@ -312,13 +318,19 @@ impl BotData {
             }
             Starting => {
                 println!("Server {:} already starting.", server_name);
-                self.send_message_with_reply(&message, "Der Server startet bereits.")
-                    .await;
+                self.send_message_with_reply(
+                    &message,
+                    &LOCALES.lookup(&self.locale, "server-starting-already"),
+                )
+                .await;
             }
             ServerStatus::Running { .. } => {
                 println!("Server {:} already running.", server_name);
-                self.send_message_with_reply(&message, "Der Server läuft bereits.")
-                    .await;
+                self.send_message_with_reply(
+                    &message,
+                    &LOCALES.lookup(&self.locale, "server-running-already"),
+                )
+                .await;
             }
         }
     }
@@ -328,17 +340,27 @@ impl BotData {
 
         match self.get_service_active(&message) {
             Inactive => {
-                self.send_message_with_reply(&message, "Der Server läuft derzeit nicht.")
-                    .await;
+                self.send_message_with_reply(
+                    &message,
+                    &LOCALES.lookup(&self.locale, "server-not-running"),
+                )
+                .await;
                 println!("Server {:} not running, cannot stop.", server_name);
             }
             Starting => {
-                self.send_message_with_reply(&message, "Der Server startet gerade. Bitte warte, bis der Server vollständig hochgefahren ist, bis du ihn stoppst.").await;
+                self.send_message_with_reply(
+                    &message,
+                    &LOCALES.lookup(&self.locale, "server-starting-cannot-stop"),
+                )
+                .await;
                 println!("Server {:} currently starting, cannot stop.", server_name);
             }
             ServerStatus::Running { .. } => {
-                self.send_message_with_reply(&message, "Ich stoppe den Server.")
-                    .await;
+                self.send_message_with_reply(
+                    &message,
+                    &LOCALES.lookup(&self.locale, "stop-server"),
+                )
+                .await;
                 println!("Stop server {:}.", server_name);
                 self.disable_chatbridge_handler(message.clone(), false)
                     .await;
@@ -359,34 +381,46 @@ impl BotData {
     async fn status_server_handler(&self, message: Message) {
         match self.get_service_active(&message) {
             Inactive => {
-                self.send_message_with_reply(&message, "Der Server läuft gerade nicht.")
-                    .await;
+                self.send_message_with_reply(
+                    &message,
+                    &LOCALES.lookup(&self.locale, "server-not-running"),
+                )
+                .await;
             }
             Starting => {
-                self.send_message_with_reply(&message, "Der Server startet gerade.")
-                    .await;
+                self.send_message_with_reply(
+                    &message,
+                    &LOCALES.lookup(&self.locale, "server-starting"),
+                )
+                .await;
             }
             ServerStatus::Running {
                 current_players,
                 max_players,
                 players,
             } => {
-                if current_players == "0" {
-                    self.send_message_with_reply(
-                        &message,
-                        "Der Server läuft gerade, aber niemand ist online.",
-                    )
-                    .await;
-                } else {
-                    self.send_message_with_reply(
-                        &message,
-                        &format!(
-                            "Der Server läuft gerade und es sind {:} von {:} Spieler:innen online: {:}",
-                            current_players, max_players, players
-                        ),
-                    )
-                        .await;
-                }
+                let reply = LOCALES.lookup_with_args(&self.locale, "server-running", &{
+                    let mut map = HashMap::new();
+                    map.insert(
+                        String::from("currentPlayers"),
+                        FluentValue::Number(FluentNumber::from(
+                            u16::from_str(&current_players).unwrap(),
+                        )),
+                    );
+                    map.insert(
+                        String::from("maxPlayers"),
+                        FluentValue::Number(FluentNumber::from(
+                            u16::from_str(&max_players).unwrap(),
+                        )),
+                    );
+                    map.insert(
+                        String::from("players"),
+                        FluentValue::String(Cow::from(players)),
+                    );
+                    map
+                });
+
+                self.send_message_with_reply(&message, &reply).await;
             }
         }
     }
@@ -431,12 +465,22 @@ impl BotData {
                 "Chat bridge for {} already activated.",
                 &message.chat.id.to_string()
             );
-            self.send_message_with_reply(&message, "Die Chatbridge ist bereits aktiviert.")
-                .await;
+            self.send_message_with_reply(
+                &message,
+                &LOCALES.lookup(&self.locale, "chatbridge-activated"),
+            )
+            .await;
         } else {
             match self.get_service_active(&message) {
                 Inactive => {
-                    self.send_message_with_reply(&message, "Der Server läuft gerade nicht, daher kann die Chatbridge nicht gestartet werden.").await;
+                    self.send_message_with_reply(
+                        &message,
+                        &LOCALES.lookup(
+                            &self.locale,
+                            "chatbridge-activation-not-possible-server-not-running",
+                        ),
+                    )
+                    .await;
                 }
                 Starting => {
                     if !self
@@ -446,7 +490,11 @@ impl BotData {
                         .contains_key(&message.chat.id.to_string())
                     {
                         //TODO: This is not 100% thread-safe. Maybe change RwLock to Mutex and/or lock (write) for the whole Starting-scope.
-                        self.send_message_with_reply(&message, "Ok! Ich aktiviere die Chatbridge, sobald der Server fertig hochgefahren ist.").await;
+                        self.send_message_with_reply(
+                            &message,
+                            &LOCALES.lookup(&self.locale, "activate-chatbridge-after-start"),
+                        )
+                        .await;
                         println!(
                             "Chat bridge will be activated for {} once the server is started.",
                             &message.chat.id.to_string()
@@ -458,7 +506,7 @@ impl BotData {
                     } else {
                         self.send_message_with_reply(
                             &message,
-                            "Die Aktivierung der Chatbridge ist bereits vorbereitet.",
+                            &LOCALES.lookup(&self.locale, "chatbridge-activation-already-prepared"),
                         )
                         .await;
                         println!(
@@ -468,8 +516,11 @@ impl BotData {
                     }
                 }
                 ServerStatus::Running { .. } => {
-                    self.send_message_with_reply(&message, "Ich aktiviere die Chatbridge.")
-                        .await;
+                    self.send_message_with_reply(
+                        &message,
+                        &LOCALES.lookup(&self.locale, "activate-chatbridge"),
+                    )
+                    .await;
                     println!(
                         "Chat bridge will be activated for {}.",
                         &message.chat.id.to_string()
@@ -532,15 +583,21 @@ impl BotData {
                 &message.chat.id.to_string()
             );
             if send_message {
-                self.send_message_with_reply(&message, "Die Chatbridge ist bereits deaktiviert.")
-                    .await;
+                self.send_message_with_reply(
+                    &message,
+                    &LOCALES.lookup(&self.locale, "chatbridge-deactivated"),
+                )
+                .await;
             }
         } else {
             let mut chatbridge_lock = self.chatbridge_map.write().await;
             if chatbridge_lock.contains_key(&message.chat.id.to_string()) {
                 if send_message {
-                    self.send_message_with_reply(&message, "Ich deaktiviere die Chatbridge.")
-                        .await;
+                    self.send_message_with_reply(
+                        &message,
+                        &LOCALES.lookup(&self.locale, "deactivate-chatbridge"),
+                    )
+                    .await;
                 }
                 println!(
                     "Chat bridge for {} gets deactivated.",
@@ -553,9 +610,8 @@ impl BotData {
     }
 
     async fn licence_handler(&self, message: Message) {
-        self.send_message_with_reply(&message, "Dieser Bot ist freie Software! \
-        Der Quelltext ist lizenziert unter GPLv3 oder einer späteren Version. \
-        Der Quelltext ist abrufbar unter https://github.com/PatrickJosh/minecraft-server-telegram-bot.").await;
+        self.send_message_with_reply(&message, &LOCALES.lookup(&self.locale, "licence"))
+            .await;
     }
 
     async fn pass_message_to_chatbridge(&mut self, message: Message) {
