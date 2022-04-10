@@ -41,7 +41,7 @@ The constructed binary can be found at `target/release/minecraft-server-telegram
 ```
 Then, enter
 ```
-# Allow user minecraft to start end stop systemd service for the minecraft server
+# Allow user minecraft to start and stop systemd service for the minecraft server
 
 minecraft ALL = NOPASSWD: /usr/bin/systemctl start minecraft-server@<name>.service, /usr/bin/systemctl is-active minecraft-server@<name>.service, /usr/bin/systemctl stop minecraft-server@<name>.service, /usr/bin/journalctl -f -u minecraft-server@<name>.service, /usr/bin/journalctl -f -n 0 -u minecraft-server@<name>.service
 ```
