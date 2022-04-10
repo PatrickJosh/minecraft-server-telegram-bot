@@ -45,7 +45,8 @@ Then, enter
 
 minecraft ALL = NOPASSWD: /usr/bin/systemctl start minecraft-server@<name>.service, /usr/bin/systemctl is-active minecraft-server@<name>.service, /usr/bin/systemctl stop minecraft-server@<name>.service, /usr/bin/journalctl -f -u minecraft-server@<name>.service, /usr/bin/journalctl -f -n 0 -u minecraft-server@<name>.service
 ```
-You will have to do this for every server which you want to control via the Telegram bot.
+In this file, `<name>` should be replaced by the name of your server, the same that you entered in the `bot-config.json`.
+You will have to add such a line for every server which you want to control via the Telegram bot.
 Since `sudo` version 1.9.10, also regular expressions are usable in sudoers files, however Fedora Linux has not received
 this version yet.
 I am not using wildcards as these are insecure for this use case.
