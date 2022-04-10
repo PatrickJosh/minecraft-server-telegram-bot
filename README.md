@@ -35,6 +35,20 @@ The constructed binary can be found at `target/release/minecraft-server-telegram
        by many chats.
        To see how a chat id for a particular chat can be obtained, see
        [here](https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id#32572159).
+5. Create a new `sudoers` file using `visudo`. e.g. via
+```shell
+# visudo -f /etc/sudoers.d/80-minecraft
+```
+Then, enter
+```
+# Allow user minecraft to start end stop systemd service for the minecraft server
+
+minecraft ALL = NOPASSWD: /usr/bin/systemctl start minecraft-server@<name>.service, /usr/bin/systemctl is-active minecraft-server@<name>.service, /usr/bin/systemctl stop minecraft-server@<name>.service, /usr/bin/journalctl -f -u minecraft-server@<name>.service, /usr/bin/journalctl -f -n 0 -u minecraft-server@<name>.service
+```
+You will have to do this for every server which you want to control via the Telegram bot.
+Since `sudo` version 1.9.10, also regular expressions are usable in sudoers files, however Fedora Linux has not received
+this version yet.
+I am not using wildcards as these are insecure for this use case.
 
 Now you can run the server by using
 ```shell
