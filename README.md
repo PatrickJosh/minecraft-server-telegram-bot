@@ -30,7 +30,9 @@ The constructed binary can be found at `target/release/minecraft-server-telegram
 4. Open the `bot-config.json` and edit the configuration as follows:
     1. Enter the obtained token.
     2. Enter the RCON password used for your servers.
-    3. Use the `chat_server_map` to set which chats may control which servers. Enter the chat id on the left, the server
+    3. Edit the locale, if needed. The default is `en-UK`.
+    All possible locales are listed in the `locales` directory.
+    4. Use the `chat_server_map` to set which chats may control which servers. Enter the chat id on the left, the server
        name on the right. It must be an n:1 relation, so one chat may control one server, but one server may be controlled
        by many chats.
        To see how a chat id for a particular chat can be obtained, see
@@ -63,9 +65,6 @@ You can also install a systemd-service for the bot by copying `systemd-service/m
 ```
 
 ## Known issues
-- Currently, the messages sent by the bot are in German only (as it is my mother tongue and this started as a small
-  personal project).
-  For more on that, see issue #2.
 - The project currently lacks proper documentation.
 
 ## Contribution
