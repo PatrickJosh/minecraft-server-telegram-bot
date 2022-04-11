@@ -240,12 +240,12 @@ impl BotData {
                     .spawn()
                     .expect("Error executing command");
 
+                let mut bot_data = self.clone();
                 let message_clone = message.clone();
                 let server_name_clone = String::from(server_name);
 
                 let (tx, rx) = mpsc::channel();
 
-                let mut bot_data = self.clone();
                 let handle = tokio::spawn(async move {
                     println!(
                         "Start thread to check online status of {:}.",
