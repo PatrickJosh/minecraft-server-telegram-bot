@@ -21,9 +21,9 @@ use fluent_templates::fluent_bundle::FluentValue;
 use fluent_templates::{static_loader, LanguageIdentifier, Loader};
 use frankenstein::MessageEntityType::Bold;
 use frankenstein::{
-    AnswerCallbackQueryParamsBuilder, Api, CallbackQuery, EditMessageReplyMarkupParamsBuilder,
-    GetUpdatesParamsBuilder, InlineKeyboardButtonBuilder, InlineKeyboardMarkupBuilder, Message,
-    MessageEntityBuilder, ReplyMarkup, SendMessageParamsBuilder, TelegramApi,
+    AnswerCallbackQueryParams, Api, CallbackQuery, EditMessageReplyMarkupParams, GetUpdatesParams,
+    InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageEntity, ReplyMarkup,
+    SendMessageParams, TelegramApi,
 };
 use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
@@ -69,11 +69,10 @@ async fn main() {
 
     //let bot_name = api.get_me().await.unwrap().result.username.unwrap();
 
-    let mut update_params_builder = GetUpdatesParamsBuilder::default();
-    update_params_builder
+    let update_params_builder = GetUpdatesParams::builder()
         .allowed_updates(vec!["message".to_string(), "callback_query".to_string()]);
 
-    let mut update_params = update_params_builder.build().unwrap();
+    let mut update_params = update_params_builder.clone().build();
 
     let bot_data = BotData {
         locale: LanguageIdentifier::from_str(&config.locale)
@@ -139,9 +138,9 @@ async fn main() {
                         }
                     }
                     update_params = update_params_builder
+                        .clone()
                         .offset(update.update_id + 1)
-                        .build()
-                        .unwrap();
+                        .build();
                 }
             }
             Err(error) => {
@@ -213,21 +212,18 @@ impl BotData {
         match self.get_service_active(&message) {
             Inactive => {
                 {
-                    let inline_keyboard = InlineKeyboardMarkupBuilder::default()
-                        .inline_keyboard(vec![vec![InlineKeyboardButtonBuilder::default()
+                    let inline_keyboard = InlineKeyboardMarkup::builder()
+                        .inline_keyboard(vec![vec![InlineKeyboardButton::builder()
                             .text(LOCALES.lookup(&self.locale, "activate-chatbridge-inline"))
                             .callback_data("inline_enable_chatbridge")
-                            .build()
-                            .unwrap()]])
-                        .build()
-                        .unwrap();
-                    let send_message_params = SendMessageParamsBuilder::default()
+                            .build()]])
+                        .build();
+                    let send_message_params = SendMessageParams::builder()
                         .chat_id(message.chat.id)
                         .text(LOCALES.lookup(&self.locale, "start-server"))
                         .reply_to_message_id(message.message_id)
                         .reply_markup(ReplyMarkup::InlineKeyboardMarkup(inline_keyboard))
-                        .build()
-                        .unwrap();
+                        .build();
 
                     if let Err(err) = self.api.send_message(&send_message_params) {
                         println!("Failed to send message: {:?}", err);
@@ -429,26 +425,23 @@ impl BotData {
     async fn enable_chatbridge_inline_handler(&mut self, callback_query: CallbackQuery) {
         if let Some(message) = callback_query.message {
             {
-                let inline_keyboard = InlineKeyboardMarkupBuilder::default()
+                let inline_keyboard = InlineKeyboardMarkup::builder()
                     .inline_keyboard(vec![vec![]])
-                    .build()
-                    .unwrap();
-                let edit_message_params = EditMessageReplyMarkupParamsBuilder::default()
+                    .build();
+                let edit_message_params = EditMessageReplyMarkupParams::builder()
                     .chat_id(message.chat.id)
                     .message_id(message.message_id)
                     .reply_markup(inline_keyboard)
-                    .build()
-                    .unwrap();
+                    .build();
                 if let Err(err) = self.api.edit_message_reply_markup(&edit_message_params) {
                     println!("Failed to send answer_callback_reply: {:?}", err);
                 }
             }
             self.enable_chatbridge_handler(message).await;
 
-            let answer_callback_query = AnswerCallbackQueryParamsBuilder::default()
+            let answer_callback_query = AnswerCallbackQueryParams::builder()
                 .callback_query_id(&callback_query.id)
-                .build()
-                .unwrap();
+                .build();
             if let Err(err) = self.api.answer_callback_query(&answer_callback_query) {
                 println!("Failed to send answer_callback_reply: {:?}", err);
             }
@@ -547,17 +540,15 @@ impl BotData {
                         let mut reader = BufReader::new(out.stdout.unwrap()).lines();
                         while let Some(line) = reader.next().await {
                             if let Some(captures) = message_regex.captures(&line.unwrap()) {
-                                let send_message_params = SendMessageParamsBuilder::default()
+                                let send_message_params = SendMessageParams::builder()
                                     .chat_id(message.chat.id)
                                     .text(format!("{}: {}", &captures[1], &captures[2]))
-                                    .entities(vec![MessageEntityBuilder::default()
+                                    .entities(vec![MessageEntity::builder()
                                         .type_field(Bold)
                                         .offset(0_u16)
                                         .length(captures[1].len() as u16)
-                                        .build()
-                                        .unwrap()])
-                                    .build()
-                                    .unwrap();
+                                        .build()])
+                                    .build();
 
                                 if let Err(err) = bot_data.api.send_message(&send_message_params) {
                                     println!("Failed to send message: {:?}", err);
@@ -707,12 +698,11 @@ impl BotData {
     }
 
     async fn send_message_with_reply(&self, message: &Message, reply: &str) {
-        let send_message_params = SendMessageParamsBuilder::default()
+        let send_message_params = SendMessageParams::builder()
             .chat_id(message.chat.id)
             .text(reply)
             .reply_to_message_id(message.message_id)
-            .build()
-            .unwrap();
+            .build();
 
         if let Err(err) = self.api.send_message(&send_message_params) {
             println!("Failed to send message: {:?}", err);
