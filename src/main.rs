@@ -29,6 +29,7 @@ use futures_lite::io::BufReader;
 use futures_lite::{AsyncBufReadExt, StreamExt};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
@@ -630,7 +631,15 @@ impl BotData {
             } else {
                 &message.from.as_ref().unwrap().first_name
             };
-            let text = message.text.as_ref().unwrap();
+            let tellraw = json!([
+                "", // Apparently needed, otherwise the whole message is bold.
+                {
+                    "text": name,
+                    "bold": "true"
+                },
+                ": ",
+                message.text.as_ref().unwrap()
+            ]);
             Command::new("mcrcon")
                 .args([
                     "-H",
@@ -639,10 +648,7 @@ impl BotData {
                     "25575",
                     "-p",
                     self.config.rcon_password.as_str(),
-                    &format!(
-                        "tellraw @a [\"\",{{\"text\":\"{}\",\"bold\":true}},\": {}\"]",
-                        name, text
-                    ),
+                    &format!("tellraw @a {}", tellraw),
                 ])
                 .output()
                 .expect("Error executing command");
