@@ -531,7 +531,7 @@ impl BotData {
                             "minecraft-server@{:}.service",
                             bot_data.config.chat_server_map[&message.chat.id.to_string()].as_str()
                         );
-                        let message_regex = Regex::new("INFO]: <([A-Za-z0-9]+)> (.*)").unwrap();
+                        let message_regex = Regex::new(r"^[[:alpha:]]{3} \d{2} \d{2}:\d{2}:\d{2} [A-Za-z0-9\-]* start\.sh\[\d*\]: \[\d{2}:\d{2}:\d{2} INFO\]: <([A-Za-z0-9]*)> (.*)$").unwrap();
                         let out = AsyncCommand::new("sudo")
                             .args(["journalctl", "-f", "-n", "0", "-u", &service_name])
                             .stdout(Stdio::piped())
