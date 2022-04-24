@@ -8,6 +8,7 @@ server-not-running = The server is not running currently.
 server-starting = The server is starting currently.
 server-starting-cannot-stop = The server is currently starting. Please wait until the server is done with starting before you shut it down.
 stop-server = I stop the server.
+server-stopped-externally = The server was stopped by another chat or an external system. I deactivate the chat bridge.
 server-running =
     { $currentPlayers ->
         [0] The server is running. However, nobody is online right now.

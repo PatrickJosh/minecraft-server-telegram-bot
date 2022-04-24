@@ -8,6 +8,7 @@ server-not-running = Der Server läuft derzeit nicht.
 server-starting = Der Server startet gerade.
 server-starting-cannot-stop = Der Server startet gerade. Bitte warte, bis der Server vollständig hochgefahren ist, bis du ihn stoppst.
 stop-server = Ich stoppe den Server.
+server-stopped-externally = Der Server wurde durch einen anderen Chat oder ein externes System gestoppt. Ich deaktiviere die Chatbridge.
 server-running =
     { $currentPlayers ->
         [0] Der Server läuft gerade, aber niemand ist online.

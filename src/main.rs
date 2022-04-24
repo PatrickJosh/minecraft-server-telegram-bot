@@ -520,7 +520,7 @@ impl BotData {
                         &message.chat.id.to_string()
                     );
                     let message_clone = message.clone();
-                    let bot_data = self.clone();
+                    let mut bot_data = self.clone();
                     let handle = tokio::spawn(async move {
                         let message = message_clone;
                         println!(
@@ -532,6 +532,7 @@ impl BotData {
                             bot_data.config.chat_server_map[&message.chat.id.to_string()].as_str()
                         );
                         let message_regex = Regex::new(r"^[[:alpha:]]{3} \d{2} \d{2}:\d{2}:\d{2} [A-Za-z0-9\-]* start\.sh\[\d*\]: \[\d{2}:\d{2}:\d{2} INFO\]: <([A-Za-z0-9]*)> (.*)$").unwrap();
+                        let stop_regex = Regex::new(r"^[[:alpha:]]{3} \d{2} \d{2}:\d{2}:\d{2} [A-Za-z0-9\-]* systemd\[1\]: minecraft-server@.*?\.service: Deactivated successfully\.$").unwrap();
                         let out = AsyncCommand::new("sudo")
                             .args(["journalctl", "-f", "-n", "0", "-u", &service_name])
                             .stdout(Stdio::piped())
@@ -539,7 +540,7 @@ impl BotData {
                             .unwrap();
                         let mut reader = BufReader::new(out.stdout.unwrap()).lines();
                         while let Some(line) = reader.next().await {
-                            if let Some(captures) = message_regex.captures(&line.unwrap()) {
+                            if let Some(captures) = message_regex.captures(line.as_ref().unwrap()) {
                                 let send_message_params = SendMessageParams::builder()
                                     .chat_id(message.chat.id)
                                     .text(format!("{}: {}", &captures[1], &captures[2]))
@@ -553,6 +554,20 @@ impl BotData {
                                 if let Err(err) = bot_data.api.send_message(&send_message_params) {
                                     println!("Failed to send message: {:?}", err);
                                 }
+                            } else if stop_regex.is_match(line.as_ref().unwrap()) {
+                                tokio::spawn(async move {
+                                    bot_data
+                                        .send_message(
+                                            message.chat.id,
+                                            &LOCALES.lookup(
+                                                &bot_data.locale,
+                                                "server-stopped-externally",
+                                            ),
+                                        )
+                                        .await;
+                                    bot_data.disable_chatbridge_handler(message, false).await;
+                                });
+                                return;
                             }
                         }
                     });
@@ -702,6 +717,17 @@ impl BotData {
             .chat_id(message.chat.id)
             .text(reply)
             .reply_to_message_id(message.message_id)
+            .build();
+
+        if let Err(err) = self.api.send_message(&send_message_params) {
+            println!("Failed to send message: {:?}", err);
+        }
+    }
+
+    async fn send_message(&self, chat_id: i64, text: &str) {
+        let send_message_params = SendMessageParams::builder()
+            .chat_id(chat_id)
+            .text(text)
             .build();
 
         if let Err(err) = self.api.send_message(&send_message_params) {
