@@ -1,5 +1,6 @@
 activate-chatbridge-inline = Aktiviere Chatbridge
 start-server = Ich starte den Server. Wenn du die Chatbridge aktivieren möchtest, dann betätige den Knopf unter der Nachricht.
+start-server-without-button = Ich starte den Server.
 server-started-now = Der Server ist nun gestartet.
 server-started-unknown = Der Server wurde gestartet, allerdings kann nicht ermittelt werden, ob er nun auch läuft. Dies deutet normalerweise darauf hin, dass der Server nicht erfolgreich gestartet ist. Bitte kontaktiere deinen Serveradministrator und frage nach, was schiefgelaufen ist.
 server-starting-already = Der Server startet bereits.

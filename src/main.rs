@@ -21,7 +21,7 @@ use fluent_templates::fluent_bundle::FluentValue;
 use fluent_templates::{static_loader, LanguageIdentifier, Loader};
 use frankenstein::MessageEntityType::Bold;
 use frankenstein::{
-    AnswerCallbackQueryParams, Api, CallbackQuery, EditMessageReplyMarkupParams, GetUpdatesParams,
+    AnswerCallbackQueryParams, Api, CallbackQuery, EditMessageTextParams, GetUpdatesParams,
     InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageEntity, ReplyMarkup,
     SendMessageParams, TelegramApi,
 };
@@ -211,24 +211,26 @@ impl BotData {
         let server_name = self.config.chat_server_map[&message.chat.id.to_string()].as_str();
         match self.get_service_active(&message) {
             Inactive => {
-                {
-                    let inline_keyboard = InlineKeyboardMarkup::builder()
-                        .inline_keyboard(vec![vec![InlineKeyboardButton::builder()
-                            .text(LOCALES.lookup(&self.locale, "activate-chatbridge-inline"))
-                            .callback_data("inline_enable_chatbridge")
-                            .build()]])
-                        .build();
-                    let send_message_params = SendMessageParams::builder()
-                        .chat_id(message.chat.id)
-                        .text(LOCALES.lookup(&self.locale, "start-server"))
-                        .reply_to_message_id(message.message_id)
-                        .reply_markup(ReplyMarkup::InlineKeyboardMarkup(inline_keyboard))
-                        .build();
+                let inline_keyboard = InlineKeyboardMarkup::builder()
+                    .inline_keyboard(vec![vec![InlineKeyboardButton::builder()
+                        .text(LOCALES.lookup(&self.locale, "activate-chatbridge-inline"))
+                        .callback_data("inline_enable_chatbridge")
+                        .build()]])
+                    .build();
+                let send_message_params = SendMessageParams::builder()
+                    .chat_id(message.chat.id)
+                    .text(LOCALES.lookup(&self.locale, "start-server"))
+                    .reply_to_message_id(message.message_id)
+                    .reply_markup(ReplyMarkup::InlineKeyboardMarkup(inline_keyboard))
+                    .build();
 
-                    if let Err(err) = self.api.send_message(&send_message_params) {
+                let start_message = match self.api.send_message(&send_message_params) {
+                    Ok(message) => Some(message.result),
+                    Err(err) => {
                         println!("Failed to send message: {:?}", err);
+                        None
                     }
-                }
+                };
 
                 println!("Start server {:}.", server_name);
                 let service_name = format!("minecraft-server@{:}.service", server_name);
@@ -257,6 +259,27 @@ impl BotData {
                     while let Some(line) = reader.next().await {
                         if line.unwrap().contains("]: Done") {
                             println!("Server {} started.", server_name_clone);
+                            if let Some(start_message) = start_message {
+                                let inline_keyboard = InlineKeyboardMarkup::builder()
+                                    .inline_keyboard(vec![vec![]])
+                                    .build();
+                                let edit_message_params =
+                                    EditMessageTextParams::builder()
+                                        .chat_id(start_message.chat.id)
+                                        .message_id(start_message.message_id)
+                                        .reply_markup(inline_keyboard)
+                                        .text(&LOCALES.lookup(
+                                            &bot_data.locale,
+                                            "start-server-without-button",
+                                        ))
+                                        .build();
+                                if let Err(err) =
+                                    bot_data.api.edit_message_text(&edit_message_params)
+                                {
+                                    println!("Failed to edit message: {:?}", err);
+                                }
+                            }
+
                             bot_data
                                 .send_message_with_reply(
                                     &message_clone,
@@ -428,13 +451,14 @@ impl BotData {
                 let inline_keyboard = InlineKeyboardMarkup::builder()
                     .inline_keyboard(vec![vec![]])
                     .build();
-                let edit_message_params = EditMessageReplyMarkupParams::builder()
+                let edit_message_params = EditMessageTextParams::builder()
                     .chat_id(message.chat.id)
                     .message_id(message.message_id)
                     .reply_markup(inline_keyboard)
+                    .text(&LOCALES.lookup(&self.locale, "start-server-without-button"))
                     .build();
-                if let Err(err) = self.api.edit_message_reply_markup(&edit_message_params) {
-                    println!("Failed to send answer_callback_reply: {:?}", err);
+                if let Err(err) = self.api.edit_message_text(&edit_message_params) {
+                    println!("Failed to edit message: {:?}", err);
                 }
             }
             self.enable_chatbridge_handler(message).await;
