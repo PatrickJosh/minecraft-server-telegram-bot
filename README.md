@@ -32,8 +32,9 @@ The constructed binary can be found at `target/release/minecraft-server-telegram
     2. Enter the RCON password used for your servers.
     3. Edit the locale, if needed. The default is `en-UK`.
     All possible locales are listed in the `locales` directory.
+    Feel free to add new locales! Please have a look at [the Contributions section](#Contribution).
     4. Use the `chat_server_map` to set which chats may control which servers. Enter the chat id on the left, the server
-       name on the right. It must be an n:1 relation, so one chat may control one server, but one server may be controlled
+       name on the right. It must be an n:1 relation, so one chat may control up to one server, but one server may be controlled
        by many chats.
        To see how a chat id for a particular chat can be obtained, see
        [here](https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id#32572159).
