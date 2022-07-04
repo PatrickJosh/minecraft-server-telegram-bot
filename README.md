@@ -4,13 +4,13 @@ of servers, all via a Telegram bot.
 It can also mirror the chat messages in Minecraft to a Telegram chat and vice versa.
 
 To be able to use the software, one has to have a setup similar to the one in explained
-[here](https://github.com/PatrickJosh/minecraft-server-systemd-service). Most importantly, the start and stop commands
+[here](https://codeberg.org/PatrickJosh/minecraft-server-systemd-service). Most importantly, the start and stop commands
 have to have the same structure as mentioned in the explanation. If this is not the case, then to have to edit the
 command syntax in the sources of this software.
 
 ## Configuration
 The setup is written as a bit of a follow-up to the explanation given in
-[this repository](https://github.com/PatrickJosh/minecraft-server-systemd-service).
+[this repository](https://codeberg.org/PatrickJosh/minecraft-server-systemd-service).
 Especially the steps 1 to 3 of the section “Setting up the systemd-service” are necessary.
 
 ### Compile the project
