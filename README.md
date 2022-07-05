@@ -1,3 +1,6 @@
+# This repository has been migrated to codeberg.org
+See [here](https://codeberg.org/PatrickJosh/minecraft-server-telegram-bot).
+
 # Minecraft Server Telegram Bot
 This software can be used to start/stop Minecraft servers via systemd and get the current status
 of servers, all via a Telegram bot.
